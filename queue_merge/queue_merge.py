@@ -13,8 +13,8 @@ class TargetData:
         self.column_names = {
             'name': ['ID', 'Name', 'name', 'Target Name', 'target name'],
             'magnitude': ['Mag', 'mag', 'Magnitude', 'magnitude', 'brightness'],
-            'RA': ['RA', 'ra', 'right ascencion', 'Right Ascencion', 'Ra'],
-            'DEC': ['DEC', 'dec', 'Dec', 'Declination', 'declination']
+            'ra': ['RA', 'ra', 'right ascencion', 'Right Ascencion', 'Ra'],
+            'dec': ['DEC', 'dec', 'Dec', 'Declination', 'declination']
             'v_mag': ['V', 'vmag', 'V_mag', 'v_band', 'Vmag', 'visual'],
             'b_mag': ['B', 'bmag', 'B_mag', 'b_band', 'Bmag', 'blue'],
             'r_mag': ['R', 'rmag', 'R_mag', 'r_band', 'Rmag', 'red'],
@@ -32,6 +32,7 @@ class TargetData:
 
     def save_merge(self):
         if not self.data.empty:
+            self.data.drop_duplicates(subset=['name'], keep='first', inplace=True)
             self.data.to_csv(self.master_path, index=False)
             print(f"Saved {len(self.data)} targets to {self.master_path}.")
         else:
@@ -55,10 +56,22 @@ class TargetData:
 
             if temp_df is not None:
                 print(f"Read {len(temp_df)} entries from {os.path.basename(filepath)}.")
-                temp_df.columns = [c.lower().strip() for c in temp_df.columns]
+                rename_map = {}
+                for original_col in temp_df.columns:
+                    for standard_name, possible_names in self.column_names.items():
+                        if original_col.strip().lower() in [p.lower() for p in possible_names]:
+                            rename_map[original_col] = standard_name
+                            break
+                temp_df.rename(columns=rename_map, inplace=True)
+
 
                 if not all(col in temp_df.columns for col in ['ra', 'dec', 'name']):
                     print("Missing 'ra', 'dec', or 'name'.")
                     return False
 
-
+                self.data = pd.concat([self.data, temp_df], ignore_index=True)
+                print(f"Merged data successfully. Total Targets: {len(self.data)}")
+                return True
+        except Exception as e:
+            print(f"an error occured while reading {filepath}: {e}")
+            return False
