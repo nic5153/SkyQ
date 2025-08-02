@@ -15,6 +15,11 @@ class TargetData:
             'magnitude': ['Mag', 'mag', 'Magnitude', 'magnitude', 'brightness'],
             'RA': ['RA', 'ra', 'right ascencion', 'Right Ascencion', 'Ra'],
             'DEC': ['DEC', 'dec', 'Dec', 'Declination', 'declination']
+            'v_mag': ['V', 'vmag', 'V_mag', 'v_band', 'Vmag', 'visual'],
+            'b_mag': ['B', 'bmag', 'B_mag', 'b_band', 'Bmag', 'blue'],
+            'r_mag': ['R', 'rmag', 'R_mag', 'r_band', 'Rmag', 'red'],
+            'g_mag': ['G', 'gmag', 'G_mag', 'g_band', 'Gmag', 'green'],
+            'i_mag': ['I', 'imag', 'I_mag', 'i_band', 'Imag', 'infrared']
         }
 
     def _load_master(self):
@@ -55,12 +60,5 @@ class TargetData:
                 if not all(col in temp_df.columns for col in ['ra', 'dec', 'name']):
                     print("Missing 'ra', 'dec', or 'name'.")
                     return False
-                #in case magnitude is in a color format, need to be able to process that as well
-                colors = {
-                    'b': 'b', 'blue': 'b',
-                    'v': 'v', 'visual': 'v',
-                    'r': 'r', 'red': 'r',
-                    'g': 'g', 'green': 'g',
-                    'i': 'i', 'infrared': 'i'
-                }
+
 
