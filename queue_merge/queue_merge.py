@@ -166,3 +166,28 @@ def process_directory(input_dir):
     td.save_merge()
     log.info("Directory merge complete: %d file(s) contributed new rows.", merged_count)
     return True
+
+def launch_gui():
+
+    root = tk.Tk()
+    root.title("Sky Queue")
+    root.geometry("360x140")
+
+    status = tk.StringVar(value="Choose a folder (e.g., data or tests)")
+
+    def choose_and_run():
+        folder = filedialog.askdirectory(title="Select folder (data or tests)")
+        if not folder:
+            return
+        ok = process_directory(folder)
+        if ok:
+            status.set(f"Done ✓  Saved merged_table.csv in: {Path(folder).name}")
+            messagebox.showinfo("Sky Queue", f"Merged & saved in:\n{folder}")
+        else:
+            status.set("No changes. See logs for details.")
+            messagebox.showwarning("Sky Queue", "No files merged. Check logs/inputs.")
+
+    tk.Button(root, text="Select folder & merge…", width=24, command=choose_and_run).pack(pady=12)
+    tk.Label(root, textvariable=status).pack(pady=4)
+
+    root.mainloop()
