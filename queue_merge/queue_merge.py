@@ -6,25 +6,26 @@ from astropy.table import Table
 import shutil
 log = logging.getLogger(__name__)
 
-def _normalize_label(s: str) -> str:
+def _normalize_label(s):
     return str(s).strip().lower()
 
-class TargetData:
-    #standardizing column names
-    def standardization_map(lists_map, overrides=None):
-        flat = {}
-        for standard, variations in lists_map.items():
-            std_key = _normalized_label(standard)
-            for label in [standard, *variations]:
-                k = _normalize_label(label)
-                if k in flat and flat[k] !=std_key
-                flat[k] = std_key
-        if overrides:
-            for k, v in overrides.items():
-                flat[_normalize_label(k)] = _normalize_label(v)
+#standardizing column names
+def standardization_map(lists_map, overrides=None):
+    flat = {}
+    for standard, variations in lists_map.items():
+        std_key = _normalize_label(standard)
+        for label in [standard, *variations]:
+            k = _normalize_label(label)
+            if k in flat and flat[k] !=std_key:
+                log.warning("Header conflict for '%s': keeping '%s', ignoring '%s'", k, flat[k], std_key)
+                continue
+            flat[k] = std_key
+    if overrides:
+        for k, v in overrides.items():
+            flat[_normalize_label(k)] = _normalize_label(v)
+    return flat
 
-        return flat
-        
+class TargetData:
     def __init__(self, master_path="merged_table.csv"):
         self.master_path = master_path
         self.data = pd.DataFrame()
@@ -42,21 +43,40 @@ class TargetData:
             'i_mag': ['I', 'imag', 'I_mag', 'i_band', 'Imag', 'infrared']
         }
 
+        self.standardization_map = standardization_map(
+            self.column_names,
+            overrides={"ra (deg)": "ra", "dec (deg)": "dec", "mag": "magnitude"}
+        )
+    
+    def standardize_columns(self, df):
+        new_cols = {}
+        for c in df.columns:
+            k = _normalize_label(c)
+            new_cols[c] = self.standardization_map.get(k,k)
+        out = df.rename(columns=new_cols)
+
+        required = ["name", "ra", "dec", "magnitude"]
+        missing = [c for c in required if c not in out.columns]
+        if missing:
+            raise ValueError(f"Missing required columns {missing}."
+                            f"Got {list(out.columns)}")
+        return out
+
     def _load_master(self):
         if os.path.exists(self.master_path):
-            print(f"Loading from {self.master_path}...")
+            log.info("Loading from %s...", self.master_path)
             self.data = pd.read_csv(self.master_path)
-            print(f"Successfully loaded {len(self.data)} targets.")
+            log.info("Successfully loaded %d targets.", len(self.data))
         else:
-            print("No existing master list found")
+            log.info("No existing master list found")
 
     def save_merge(self):
         if not self.data.empty:
             self.data.drop_duplicates(subset=['name'], keep='first', inplace=True)
             self.data.to_csv(self.master_path, index=False)
-            print(f"Saved {len(self.data)} targets to {self.master_path}.")
+            log.info("Saved %d targets to %s.", len(self.data), self.master_path)
         else:
-            print("No data, nothing to save")
+            log.info("No data, nothing to save")
 
     def read_file(self, filepath):
         try:
@@ -64,34 +84,24 @@ class TargetData:
             temp_df = None
             #code needs to be able to handle: csv, dat, txt, and fits
             if file_extension.lower() == '.csv':
-                temp_df = pd.read_csv(filepath, engine='python')
+                temp_df = pd.read_csv(filepath)
             elif file_extension.lower() in ['.txt', '.dat']:
                 temp_df = pd.read_csv(filepath, sep=r'\s+', engine='python')
             elif file_extension.lower() == '.fits':
                 fits_table = Table.read(filepath)
                 temp_df = fits_table.to_pandas()
             else:
-                print(f"Unsupported file type: {file_extension}")
+                log.info("Unsupported file type %s", file_extension)
                 return False
 
             if temp_df is not None:
-                print(f"Read {len(temp_df)} entries from {os.path.basename(filepath)}.")
-                rename_map = {}
-                for original_col in temp_df.columns:
-                    for standard_name, possible_names in self.column_names.items():
-                        if original_col.strip().lower() in [p.lower() for p in possible_names]:
-                            rename_map[original_col] = standard_name
-                            break
-                temp_df.rename(columns=rename_map, inplace=True)
-
-
-                if not all(col in temp_df.columns for col in ['ra', 'dec', 'name']):
-                    print("Missing 'ra', 'dec', or 'name'.")
-                    return False
-
+                log.info("Read %d entries from %s", len(temp_df), os.path.basename(filepath))
+                temp_df = self.standardize_columns(temp_df)
                 self.data = pd.concat([self.data, temp_df], ignore_index=True)
-                print(f"Merged data successfully. Total Targets: {len(self.data)}")
+                log.info("Merged %d rows from %s (total=%d)", len(temp_df), os.path.basename(filepath), len(self.data))
                 return True
+            return False
+
         except Exception as e:
-            print(f"an error occured while reading {filepath}: {e}")
+            log.exception("An error occurred while reading %s", filepath)
             return False
