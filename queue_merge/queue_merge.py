@@ -7,6 +7,7 @@ import shutil
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from pathlib import Path
+from datetime import datetime, timezone
 log = logging.getLogger(__name__)
 
 def _normalize_label(s):
@@ -55,15 +56,20 @@ class TargetData:
         new_cols = {}
         for c in df.columns:
             k = _normalize_label(c)
-            new_cols[c] = self.standardization_map.get(k,k)
+            new_cols[c] = self.standardization_map.get(k, k)
         out = df.rename(columns=new_cols)
-
-        required = ["name", "ra", "dec", "magnitude"]
+        required = ["name", "ra", "dec"]
         missing = [c for c in required if c not in out.columns]
         if missing:
-            raise ValueError(f"Missing required columns {missing}."
-                            f"Got {list(out.columns)}")
+            raise ValueError(
+                f"Missing required columns {missing}. Got {list(out.columns)}"
+            )
+
+        if "magnitude" not in out.columns:
+            out["magnitude"] = pd.NA
+
         return out
+
 
     def _load_master(self):
         if os.path.exists(self.master_path):
@@ -109,64 +115,54 @@ class TargetData:
             log.exception("An error occurred while reading %s", filepath)
             return False
 
-def launch_gui():
-    logging.basicConfig(level=logging.INFO)
+
+def process_directory(input_dir):
+    input_path = Path(input_dir).resolve()
+    if not input_path.is_dir():
+        log.error("Not a directory: %s", input_dir)
+        return False
+
     td = TargetData()
+    td.master_path = str(input_path / "merged_table.csv")
+    td._load_master()
 
-    root = tk.Tk()
-    root.title("SkyQ")
-    root.geometry("420x200")
+    supported = {".csv", ".txt", ".dat", ".fits"}
+    files = [p for p in input_path.iterdir() if p.is_file() and p.suffix.lower() in supported]
+    if not files:
+        log.info("No supported files found in %s", input_path)
+        return False
 
-    files = []
+    processed_dir = input_path / "processed"
+    processed_dir.mkdir(exist_ok=True)
 
-    def pick_files():
-        nonlocal files
-        paths = filedialog.askopenfilenames(
-            title="Select data files",
-            filetypes=[
-                ("Supported", "*.csv *.txt *.dat *.fits"),
-                ("CSV", "*.csv"),
-                ("Text / DAT", "*.txt *.dat"),
-                ("FITS", "*.fits"),
-                ("All Files", "*.*"),
-            ]
-        )
-        if paths:
-            files = list(paths)
-            status.configure(text=f"{len(files)} file(s) selected")
+    merged_count = 0
+    for p in files:
+        pre_len = len(td.data)
+        ok = td.read_file(str(p))
+        if not ok:
+            log.info("Skipped (read failed): %s", p.name)
+            continue
 
-    def merge_and_save():
-        if not files:
-            messagebox.showwarning("Sky Queue", "Pick at least one file.")
-            return
+        rows_added = len(td.data) - pre_len
+        if rows_added > 0:
+            now = datetime.now(timezone.utc).isoformat()
+            td.data.loc[pre_len:pre_len + rows_added - 1, "updated_at"] = now
+            td.data.loc[pre_len:pre_len + rows_added - 1, "source_file"] = p.name
 
-        td.data = td.data.iloc[0:0] if isinstance(td.data, pd.DataFrame) else pd.DataFrame()
 
-        merged = 0
-        for f in files:
-            merged += int(bool(td.read_file(f)))
+            try:
+                shutil.move(str(p), str(processed_dir / p.name))
+                log.info("Merged %d row(s) from %s → moved to processed/", rows_added, p.name)
+            except Exception:
+                log.exception("Could not move %s into %s", p.name, processed_dir)
+            merged_count += 1
+        else:
+            log.info("No new rows added from %s (possible duplicates). Not moving.", p.name)
 
-        if merged == 0:
-            messagebox.showerror("Sky Queue", "No files merged. Check your inputs.")
-            return
+    if merged_count == 0:
+        log.info("No files contributed new rows. Nothing to save.")
+        return False
 
-        out = filedialog.asksaveasfilename(
-            title="Save merged table",
-            initialfile=Path(td.master_path).name,
-            defaultextension=".csv",
-            filetypes=[("CSV", "*.csv")]
-        )
-        if not out:
-            return
-
-        td.master_path = out
-        td.save_merge()
-        messagebox.showinfo("Sky Queue", f"Merged {merged} file(s).\nSaved:\n{out}")
-
-    tk.Button(root, text="Select files…", width=20, command=pick_files).pack(pady=10)
-    tk.Button(root, text="Merge & Save…", width=20, command=merge_and_save).pack(pady=4)
-    status = tk.Label(root, text="No files selected")
-    status.pack(pady=10)
-
-    root.mainloop()
-
+    td.save_merge()
+    log.info("Directory merge complete: %d file(s) contributed new rows.", merged_count)
+    return True
