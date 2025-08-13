@@ -4,6 +4,9 @@ import pandas as pd
 import logging
 from astropy.table import Table
 import shutil
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from pathlib import Path
 log = logging.getLogger(__name__)
 
 def _normalize_label(s):
@@ -45,7 +48,7 @@ class TargetData:
 
         self.standardization_map = standardization_map(
             self.column_names,
-            overrides={"ra (deg)": "ra", "dec (deg)": "dec", "mag": "magnitude"}
+            overrides={"ra": "ra", "dec": "dec", "mag": "magnitude"}
         )
     
     def standardize_columns(self, df):
@@ -105,3 +108,65 @@ class TargetData:
         except Exception as e:
             log.exception("An error occurred while reading %s", filepath)
             return False
+
+def launch_gui():
+    logging.basicConfig(level=logging.INFO)
+    td = TargetData()
+
+    root = tk.Tk()
+    root.title("SkyQ")
+    root.geometry("420x200")
+
+    files = []
+
+    def pick_files():
+        nonlocal files
+        paths = filedialog.askopenfilenames(
+            title="Select data files",
+            filetypes=[
+                ("Supported", "*.csv *.txt *.dat *.fits"),
+                ("CSV", "*.csv"),
+                ("Text / DAT", "*.txt *.dat"),
+                ("FITS", "*.fits"),
+                ("All Files", "*.*"),
+            ]
+        )
+        if paths:
+            files = list(paths)
+            status.configure(text=f"{len(files)} file(s) selected")
+
+    def merge_and_save():
+        if not files:
+            messagebox.showwarning("Sky Queue", "Pick at least one file.")
+            return
+
+        td.data = td.data.iloc[0:0] if isinstance(td.data, pd.DataFrame) else pd.DataFrame()
+
+        merged = 0
+        for f in files:
+            merged += int(bool(td.read_file(f)))
+
+        if merged == 0:
+            messagebox.showerror("Sky Queue", "No files merged. Check your inputs.")
+            return
+
+        out = filedialog.asksaveasfilename(
+            title="Save merged table",
+            initialfile=Path(td.master_path).name,
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv")]
+        )
+        if not out:
+            return
+
+        td.master_path = out
+        td.save_merge()
+        messagebox.showinfo("Sky Queue", f"Merged {merged} file(s).\nSaved:\n{out}")
+
+    tk.Button(root, text="Select files…", width=20, command=pick_files).pack(pady=10)
+    tk.Button(root, text="Merge & Save…", width=20, command=merge_and_save).pack(pady=4)
+    status = tk.Label(root, text="No files selected")
+    status.pack(pady=10)
+
+    root.mainloop()
+
