@@ -1,10 +1,30 @@
 import numpy as np
 import os
 import pandas as pd
+import logging
 from astropy.table import Table
 import shutil
+log = logging.getLogger(__name__)
+
+def _normalize_label(s: str) -> str:
+    return str(s).strip().lower()
 
 class TargetData:
+    #standardizing column names
+    def standardization_map(lists_map, overrides=None):
+        flat = {}
+        for standard, variations in lists_map.items():
+            std_key = _normalized_label(standard)
+            for label in [standard, *variations]:
+                k = _normalize_label(label)
+                if k in flat and flat[k] !=std_key
+                flat[k] = std_key
+        if overrides:
+            for k, v in overrides.items():
+                flat[_normalize_label(k)] = _normalize_label(v)
+
+        return flat
+        
     def __init__(self, master_path="merged_table.csv"):
         self.master_path = master_path
         self.data = pd.DataFrame()
@@ -13,8 +33,8 @@ class TargetData:
         self.column_names = {
             'name': ['ID', 'Name', 'name', 'Target Name', 'target name'],
             'magnitude': ['Mag', 'mag', 'Magnitude', 'magnitude', 'brightness'],
-            'ra': ['RA', 'ra', 'right ascencion', 'Right Ascencion', 'Ra'],
-            'dec': ['DEC', 'dec', 'Dec', 'Declination', 'declination']
+            "ra": ["RA", "ra", "Right Ascension", "Right Ascencion", "RA_J2000", "RA(deg)"],
+            "dec": ["DEC", "dec", "Dec", "Declination", "declination", "DEC_J2000", "DEC(deg)"],
             'v_mag': ['V', 'vmag', 'V_mag', 'v_band', 'Vmag', 'visual'],
             'b_mag': ['B', 'bmag', 'B_mag', 'b_band', 'Bmag', 'blue'],
             'r_mag': ['R', 'rmag', 'R_mag', 'r_band', 'Rmag', 'red'],
